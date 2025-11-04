@@ -230,6 +230,8 @@ def get_forecast():
         print(f"Raw request data: {data}")
         
         daily_spends = data.get('daily_spends', [])
+        start_date_str = data.get('start_date')
+        end_date_str = data.get('end_date')
         
         # Validate input
         if not daily_spends:
@@ -258,6 +260,17 @@ def get_forecast():
             
             df['date'] = pd.to_datetime(df['date'], errors='coerce')
             df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+
+            # Optional server-side filtering if start/end provided
+            if start_date_str and end_date_str:
+                try:
+                    start_dt = pd.to_datetime(start_date_str)
+                    end_dt = pd.to_datetime(end_date_str)
+                    before_rows = len(df)
+                    df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+                    print(f"✓ Applied server-side date filter: {start_dt.date()} to {end_dt.date()} (kept {len(df)}/{before_rows})")
+                except Exception as e:
+                    print(f"⚠ Failed to apply date filter: {e}")
             
             # Drop invalid rows
             initial_rows = len(df)
@@ -312,52 +325,92 @@ def get_savings_plan():
         goal_amount = float(data.get('goal_amount', 0))
         timeline_months = int(data.get('timeline_months', 1))
         average_spending = data.get('average_spending', {})
+        current_balance = data.get('current_balance', None)
         
         if goal_amount <= 0 or timeline_months <= 0:
             return jsonify({'error': 'Invalid goal amount or timeline'}), 400
         
         required_monthly_savings = goal_amount / timeline_months
+
+        # Basic validations/enhanced feedback
+        validation_messages = []
+        if current_balance is not None:
+            try:
+                current_balance = float(current_balance)
+                if current_balance < 0:
+                    return jsonify({'error': 'Current balance cannot be negative'}), 400
+                # If goal exceeds current balance entirely, mark not achievable per requirement
+                if current_balance < goal_amount:
+                    return jsonify({
+                        'plan_possible': False,
+                        'suggested_cuts': {},
+                        'monthly_savings_achieved': 0.0,
+                        'messages': ['Goal amount exceeds your current available balance. Save some money first or reduce the goal amount.']
+                    }), 200
+                # If available balance is less than one month requirement, warn
+                if current_balance < required_monthly_savings:
+                    validation_messages.append('Insufficient balance to start this plan. Save some money first or reduce the goal/timeline.')
+            except Exception:
+                return jsonify({'error': 'Invalid current_balance value'}), 400
         
         discretionary_categories = ['Shopping', 'Entertainment', 'Food & Dining', 'Gifts']
-        
-        total_discretionary = sum(
-            amount for category, amount in average_spending.items()
-            if category in discretionary_categories
-        )
-        
-        plan_possible = total_discretionary >= required_monthly_savings
-        suggested_cuts = {}
-        monthly_savings_achieved = 0
-        
-        if plan_possible:
-            discretionary_spending = [
+
+        # Prefer known discretionary categories; if none present, use top categories overall as a fallback
+        preferred_spending = [
+            (category, amount) for category, amount in average_spending.items()
+            if category in discretionary_categories and amount > 0
+        ]
+        if len(preferred_spending) == 0:
+            preferred_spending = [
                 (category, amount) for category, amount in average_spending.items()
-                if category in discretionary_categories and amount > 0
+                if amount and amount > 0
             ]
-            discretionary_spending.sort(key=lambda x: x[1], reverse=True)
-            
+
+        preferred_spending.sort(key=lambda x: x[1], reverse=True)
+
+        total_potential_cuts = sum(a for _, a in preferred_spending)
+        plan_possible = total_potential_cuts >= required_monthly_savings
+        suggested_cuts = {}
+        monthly_savings_achieved = 0.0
+
+        # Propose 40/30/20 style cuts across the largest categories, capped to requirement
+        if preferred_spending:
             remaining_savings_needed = required_monthly_savings
-            for category, amount in discretionary_spending:
+            for idx, (category, amount) in enumerate(preferred_spending[:3]):
                 if remaining_savings_needed <= 0:
                     break
-                
-                if category == discretionary_spending[0][0]:
+                if idx == 0:
                     cut_percentage = 0.4
-                elif len(discretionary_spending) > 1 and category == discretionary_spending[1][0]:
+                elif idx == 1:
                     cut_percentage = 0.3
                 else:
                     cut_percentage = 0.2
-                
-                suggested_cut = amount * cut_percentage
-                suggested_cuts[category] = round(suggested_cut, 2)
-                monthly_savings_achieved += suggested_cut
-                remaining_savings_needed -= suggested_cut
+
+                proposed = amount * cut_percentage
+                cut_value = min(proposed, remaining_savings_needed)
+                if cut_value > 0:
+                    suggested_cuts[category] = round(cut_value, 2)
+                    monthly_savings_achieved += cut_value
+                    remaining_savings_needed -= cut_value
+
+        # If still short but current balance can cover, allow plan via direct savings
+        if monthly_savings_achieved < required_monthly_savings and current_balance is not None:
+            shortfall = required_monthly_savings - monthly_savings_achieved
+            if current_balance >= shortfall:
+                suggested_cuts['Direct Savings'] = round(shortfall, 2)
+                monthly_savings_achieved += shortfall
+                plan_possible = True
         
-        return jsonify({
+        response = {
             'plan_possible': plan_possible,
             'suggested_cuts': suggested_cuts,
             'monthly_savings_achieved': round(monthly_savings_achieved, 2)
-        }), 200
+        }
+        if validation_messages:
+            response['messages'] = validation_messages
+        if not plan_possible and not validation_messages:
+            response['messages'] = ['Not enough discretionary spend. Consider extending timeline or reducing goal.']
+        return jsonify(response), 200
     except Exception as e:
         print(f"ERROR in /savings-plan: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -372,7 +425,7 @@ def health_check():
     }), 200
 
 # ==================== MAIN ====================
-if __name__ == '__main__':
+if os.environ.get("VERCEL_ENV") is None:
     init_db()
     print("\n" + "="*70)
     print("  🚀 FinSight Backend Server Starting...")
@@ -389,4 +442,6 @@ if __name__ == '__main__':
     print(f"  📱 For Flutter app, use: http://YOUR_IP_ADDRESS:5000")
     print("="*70 + "\n")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    init_db()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+

@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  another_telephony: ^0.4.1
   
   # State Management
   provider: ^6.1.1
@@ -23,18 +24,25 @@ dependencies:
   # Charts
   fl_chart: ^0.65.0
   
+  # PDF generation & printing
+  pdf: ^3.10.7
+  printing: ^5.13.1
+  path_provider: ^2.1.2
+  open_filex: ^4.4.0
+  
   # Permissions
   permission_handler: ^11.0.1
   
   # SMS
-  telephony: ^0.2.0
-  
+
+
   # Date handling
   intl: ^0.18.1
   
   # UI Components
   cupertino_icons: ^1.0.2
   crypto: ^3.0.6
+  
 
 dev_dependencies:
   flutter_test:

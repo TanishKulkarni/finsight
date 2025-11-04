@@ -1,11 +1,29 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import '../models/api_models.dart';
 
 class ApiService {
-  // IMPORTANT: Replace with your PC's IP address
-  static const String baseUrl =
-      'http://10.251.221.148:5000'; // Added :5000 port
+  // Configure via --dart-define=API_BASE_URL=http://YOUR_IP:5000
+  static final String baseUrl = _resolveBaseUrl();
+
+  static String _defaultBaseUrl() {
+    if (kIsWeb) return 'http://localhost:5000';
+    try {
+      if (Platform.isAndroid) return 'http://10.0.2.2:5000'; // Android emulator
+      if (Platform.isIOS) return 'http://localhost:5000'; // iOS simulator
+    } catch (_) {
+      // Platform not available
+    }
+    return 'http://localhost:5000';
+  }
+
+  static String _resolveBaseUrl() {
+    const fromEnv = String.fromEnvironment('API_BASE_URL');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return _defaultBaseUrl();
+  }
 
   // Get Initial Budget Suggestion
   static Future<BudgetSuggestion> getInitialBudget(
@@ -35,7 +53,9 @@ class ApiService {
 
   // Get Spending Forecast (30 days)
   static Future<ForecastData> getForecast(
-      List<Map<String, dynamic>> dailySpends) async {
+      List<Map<String, dynamic>> dailySpends,
+      {DateTime? startDate,
+      DateTime? endDate}) async {
     try {
       print('\n${'=' * 60}');
       print('📡 API Service: Sending forecast request');
@@ -45,11 +65,13 @@ class ApiService {
       print('Sample data: ${dailySpends.take(2).toList()}');
 
       final url = Uri.parse('$baseUrl/forecast');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'daily_spends': dailySpends}),
-      );
+      final response = await http.post(url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'daily_spends': dailySpends,
+            if (startDate != null) 'start_date': startDate.toIso8601String(),
+            if (endDate != null) 'end_date': endDate.toIso8601String(),
+          }));
 
       print('Response status: ${response.statusCode}');
       print(
@@ -75,6 +97,7 @@ class ApiService {
     required double goalAmount,
     required int timelineMonths,
     required Map<String, double> averageSpending,
+    double? currentBalance,
   }) async {
     try {
       print('💰 API: Requesting savings plan');
@@ -87,6 +110,7 @@ class ApiService {
           'goal_amount': goalAmount,
           'timeline_months': timelineMonths,
           'average_spending': averageSpending,
+          if (currentBalance != null) 'current_balance': currentBalance,
         }),
       );
 

@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/transaction.dart';
 import '../services/database_service.dart';
 import '../services/sms_parser_service.dart';
-import 'package:telephony/telephony.dart';
+import 'package:another_telephony/telephony.dart';
 
 class TransactionProvider with ChangeNotifier {
   final Telephony _telephony = Telephony.instance;

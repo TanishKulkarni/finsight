@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../services/api_service.dart';
 import '../models/api_models.dart';
+import '../widgets/date_range_selector.dart';
+import '../services/report_service.dart';
 
 class SavingsPlannerScreen extends StatefulWidget {
   const SavingsPlannerScreen({super.key});
@@ -16,6 +18,8 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
   final _formKey = GlobalKey<FormState>();
   final _goalAmountController = TextEditingController();
   final _timelineController = TextEditingController();
+  final _currentBalanceController = TextEditingController();
+  DateRangeMonths _analysisRange = DateRangeMonths.three;
 
   SavingsPlan? _savingsPlan;
   bool _isLoading = false;
@@ -25,6 +29,7 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
   void dispose() {
     _goalAmountController.dispose();
     _timelineController.dispose();
+    _currentBalanceController.dispose();
     super.dispose();
   }
 
@@ -35,6 +40,14 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
         title: const Text('Savings Planner'),
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
+        actions: [
+          if (_savingsPlan != null)
+            IconButton(
+              onPressed: _isLoading ? null : _exportReport,
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: 'Generate PDF Report',
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -92,6 +105,27 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
               ),
               const SizedBox(height: 16),
               TextFormField(
+                controller: _currentBalanceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Current Available Balance (optional)',
+                  prefixText: '₹ ',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.account_balance_wallet),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) return null;
+                  if (double.tryParse(value) == null) {
+                    return 'Please enter a valid amount';
+                  }
+                  if (double.parse(value) < 0) {
+                    return 'Balance cannot be negative';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
                 controller: _timelineController,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
@@ -111,6 +145,21 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Analysis period:'),
+                  DateRangeSelector(
+                    value: _analysisRange,
+                    onChanged: (v) {
+                      setState(() {
+                        _analysisRange = v;
+                      });
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               SizedBox(
@@ -280,6 +329,24 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
                 style: TextStyle(color: Colors.white70),
               ),
             ],
+            if (plan.messages.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...plan.messages.map((m) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• ', style: TextStyle(color: Colors.white70)),
+                        Expanded(
+                          child: Text(
+                            m,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
           ],
         ),
       ),
@@ -288,10 +355,28 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
 
   Widget _buildSuggestedCuts() {
     if (_savingsPlan!.suggestedCuts.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(20),
-          child: Text('No spending cuts suggested'),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('No spending cuts suggested'),
+              if (_savingsPlan!.messages.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ..._savingsPlan!.messages.map((m) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('• '),
+                          Expanded(child: Text(m)),
+                        ],
+                      ),
+                    )),
+              ],
+            ],
+          ),
         ),
       );
     }
@@ -385,14 +470,15 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
     try {
       // final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
-      // Get average spending by category for last 3 months
-      final averageSpending =
-          await DatabaseService.getAverageSpendingByCategory(3);
+      // Get average spending by category for selected analysis period
+      final averageSpending = await DatabaseService
+          .getAverageSpendingByCategory(_analysisRange.months);
 
       final savingsPlan = await ApiService.getSavingsPlan(
         goalAmount: double.parse(_goalAmountController.text),
         timelineMonths: int.parse(_timelineController.text),
         averageSpending: averageSpending,
+        currentBalance: double.tryParse(_currentBalanceController.text),
       );
 
       setState(() {
@@ -405,5 +491,38 @@ class _SavingsPlannerScreenState extends State<SavingsPlannerScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _exportReport() async {
+    if (_savingsPlan == null) return;
+    final goal = double.tryParse(_goalAmountController.text) ?? 0;
+    final timeline = int.tryParse(_timelineController.text) ?? 0;
+    final monthly = _savingsPlan!.monthlySavingsAchieved;
+    final total = monthly * timeline;
+
+    // Try to compute simple forecast for the selected analysis window
+    ForecastData? forecastData;
+    try {
+      final days = _analysisRange.months * 30;
+      final daily = await DatabaseService.getDailySpendingData(days);
+      if (daily.isNotEmpty) {
+        final now = DateTime.now();
+        final start = now.subtract(Duration(days: days));
+        forecastData = await ApiService.getForecast(daily, startDate: start, endDate: now);
+      }
+    } catch (_) {}
+
+    await ReportService.generateAndShareReport(
+      title: 'FinSight Personal Finance Report',
+      analysisPeriodLabel: _analysisRange.label,
+      keyStats: {
+        'Goal Amount': goal,
+        'Timeline (months)': timeline.toDouble(),
+        'Monthly Savings (plan)': monthly,
+        'Total Savings (plan)': total,
+      },
+      forecast: forecastData,
+      savingsPlan: _savingsPlan!,
+    );
   }
 }

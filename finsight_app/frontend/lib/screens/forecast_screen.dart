@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../services/database_service.dart';
 import '../services/api_service.dart';
 import '../models/api_models.dart';
+import '../widgets/date_range_selector.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -17,6 +18,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
   ForecastData? _forecastData;
   bool _isLoading = false;
   String? _error;
+  DateRangeMonths _range = DateRangeMonths.one;
 
   @override
   void initState() {
@@ -33,8 +35,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
     try {
       print('📊 ForecastScreen: Loading forecast data...');
 
-      // Get daily spending data for last 30 days
-      final dailySpends = await DatabaseService.getDailySpendingData(30);
+      // Get daily spending data for selected date range
+      final days = _range.months * 30;
+      final dailySpends = await DatabaseService.getDailySpendingData(days);
       print('✓ Got ${dailySpends.length} days of spending data');
 
       if (dailySpends.isEmpty) {
@@ -46,7 +49,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
         return;
       }
 
-      final forecastData = await ApiService.getForecast(dailySpends);
+      final now = DateTime.now();
+      final start = now.subtract(Duration(days: days));
+      final forecastData = await ApiService.getForecast(
+        dailySpends,
+        startDate: start,
+        endDate: now,
+      );
       print('✓ Forecast generated successfully');
 
       setState(() {
@@ -70,6 +79,20 @@ class _ForecastScreenState extends State<ForecastScreen> {
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
         actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: DateRangeSelector(
+                value: _range,
+                onChanged: (v) {
+                  setState(() {
+                    _range = v;
+                  });
+                  _loadForecast();
+                },
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadForecast,
@@ -176,13 +199,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.trending_up, color: Colors.white),
-                SizedBox(width: 8),
+                const Icon(Icons.trending_up, color: Colors.white),
+                const SizedBox(width: 8),
                 Text(
-                  '30-Day Forecast',
-                  style: TextStyle(
+                  '${_range.months * 30}-Day Forecast',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,

@@ -8,6 +8,11 @@ import 'manual_expense_screen.dart';
 import 'budget_screen.dart' as budget;
 import 'forecast_screen.dart';
 import 'savings_planner_screen.dart';
+import '../services/report_service.dart';
+import '../services/database_service.dart';
+import '../services/api_service.dart';
+import 'reports_screen.dart';
+import '../widgets/date_range_selector.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -17,6 +22,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  DateRangeMonths _range = DateRangeMonths.one;
   @override
   void initState() {
     super.initState();
@@ -34,6 +40,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: DateRangeSelector(
+                value: _range,
+                onChanged: (v) {
+                  setState(() {
+                    _range = v;
+                  });
+                },
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Sync SMS & Refresh',
@@ -59,6 +78,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Generate Monthly Report',
+            onPressed: () async {
+              await _generateMonthlyReport();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.folder),
+            tooltip: 'View Reports',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ReportsScreen()),
+              );
+            },
+          ),
         ],
       ),
       body: Consumer<TransactionProvider>(
@@ -68,19 +104,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
 
           final now = DateTime.now();
-          final currentMonthStart = DateTime(now.year, now.month, 1);
-          final nextMonthStart = DateTime(now.year, now.month + 1, 1);
-          final currentMonthTransactions = transactionProvider.transactions
+          final start = now.subtract(Duration(days: _range.months * 30));
+          final end = now;
+          final periodTransactions = transactionProvider.transactions
               .where((t) =>
-                  t.date.isAfter(
-                      currentMonthStart.subtract(const Duration(seconds: 1))) &&
-                  t.date.isBefore(nextMonthStart))
+                  t.date.isAfter(start.subtract(const Duration(seconds: 1))) &&
+                  t.date.isBefore(end.add(const Duration(seconds: 1))))
               .toList();
           
           // ✅ FIXED: Calculate debits and credits separately
-          final totals = _calculateTotals(currentMonthTransactions);
+          final totals = _calculateTotals(periodTransactions);
           final spendingByCategory =
-              _calculateSpendingByCategory(currentMonthTransactions);
+              _calculateSpendingByCategory(periodTransactions);
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -93,7 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 24),
                 _buildQuickActions(),
                 const SizedBox(height: 24),
-                _buildRecentTransactions(currentMonthTransactions),
+                _buildRecentTransactions(periodTransactions),
               ],
             ),
           );
@@ -166,8 +201,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'This Month Summary',
+            Text(
+              '${_range.label} Summary',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -527,7 +562,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             Text(
-              '${transactions.length} this month',
+              '${transactions.length} in ${_range.label.toLowerCase()}',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[600],
@@ -719,5 +754,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
+  }
+
+  Future<void> _generateMonthlyReport() async {
+    try {
+      final provider = Provider.of<TransactionProvider>(context, listen: false);
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, 1);
+      final end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+      final monthTxs = provider.transactions.where((t) => t.date.isAfter(start.subtract(const Duration(seconds: 1))) && t.date.isBefore(end)).toList();
+      final totals = _calculateTotals(monthTxs);
+
+      // Build daily spends and optional forecast
+      final daily = await DatabaseService.getDailySpendingData(30);
+      final forecast = daily.isNotEmpty
+          ? await ApiService.getForecast(daily, startDate: DateTime.now().subtract(const Duration(days: 30)), endDate: DateTime.now())
+          : null;
+
+      final path = await ReportService.generateAndSaveReport(
+        title: 'Monthly Finance Report',
+        analysisPeriodLabel: 'This month',
+        keyStats: {
+          'Debits (Spent)': totals['debits'] ?? 0,
+          'Credits (Received)': totals['credits'] ?? 0,
+          'Net Expense': totals['net'] ?? 0,
+        },
+        forecast: forecast,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Report saved: $path')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to generate report: $e')),
+      );
+    }
   }
 }

@@ -1,0 +1,72 @@
+# ------------------------------
+# Python
+# ------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+*.tmp
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+pip-wheel-metadata/
+site/
+
+# ------------------------------
+# Flask / Gunicorn
+# ------------------------------
+instance/
+*.db
+*.sqlite3
+*.sqlite
+*.pid
+*.sock
+
+# ------------------------------
+# Model Files (optional)
+# Uncomment if your model is large or private
+# budget_forecasting_model_v2.pkl
+
+# ------------------------------
+# Config / Secrets
+# ------------------------------
+*.env
+.env.*
+secrets.json
+config.yaml
+config.yml
+
+# ------------------------------
+# OS / Editor Specific
+# ------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ------------------------------
+# Build / Packaging
+# ------------------------------
+build/
+dist/
+*.spec
+
+# ------------------------------
+# Render / Deployment
+# ------------------------------
+.render-build/
+*.tar.gz
