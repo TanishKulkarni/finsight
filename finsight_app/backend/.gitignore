@@ -70,3 +70,4 @@ dist/
 # ------------------------------
 .render-build/
 *.tar.gz
+.vercel
