@@ -4,8 +4,8 @@ Flask-CORS==4.0.0
 gunicorn
 
 # Data Science (Updated for Modern Python/Build System)
-pandas==2.1.4 
-numpy==1.26.4
+pandas==2.2.2
+numpy==1.26.0
 scikit-learn==1.3.0
 prophet==1.1.4
 
