@@ -1,0 +1,41 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.venv/
+
+# Ignore build artifacts
+build/
+dist/
+*.egg-info/
+
+# Ignore local configuration and secrets
+.env
+*.env
+.env.*
+
+# Ignore git and metadata
+.git
+.gitignore
+.DS_Store
+
+# Ignore IDE/editor settings
+.vscode/
+.idea/
+
+# Ignore frontend (since you’re deploying backend only)
+frontend/
+node_modules/
+
+# Ignore local data or models you don’t need in the container
+
+
+# Ignore temporary files
+tmp/
+*.tmp
+*.bak
+*.swp
